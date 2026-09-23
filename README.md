@@ -6,3 +6,4 @@
 - Firebase project: `survey-49daa`
 - Hosting source: `public/index.html`
 - `main` 分支更新後由 GitHub Actions 自動部署。
+- Firebase Hosting GitHub deployment is configured with a repository service-account secret.
