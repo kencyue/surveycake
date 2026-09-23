@@ -156,6 +156,56 @@
         }
         body.admin-dark footer { background-color: #1e293b !important; border-color: #334155 !important; color: #94a3b8 !important; }
         body.admin-dark #footer-line1 { color: #cbd5e1 !important; }
+        .deploy-git-pill {
+            display: none;
+            width: max-content;
+            max-width: calc(100vw - 2rem);
+            margin: 0.65rem auto 0;
+            align-items: center;
+            gap: 0.42rem;
+            padding: 0.34rem 0.68rem;
+            border-radius: 999px;
+            border: 1px solid #e2e8f0;
+            background: rgba(255,255,255,0.88);
+            color: #64748b;
+            font-size: 0.72rem;
+            line-height: 1;
+            text-decoration: none;
+            box-shadow: 0 1px 2px rgba(15,23,42,0.04);
+            transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+        }
+        body.admin-mode .deploy-git-pill { display: inline-flex; }
+        .deploy-git-pill:hover {
+            transform: translateY(-1px);
+            border-color: #cbd5e1;
+            box-shadow: 0 4px 12px rgba(15,23,42,0.08);
+        }
+        .deploy-git-pill .deploy-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 999px;
+            background: #22c55e;
+            box-shadow: 0 0 0 3px rgba(34,197,94,0.12);
+            flex: 0 0 auto;
+        }
+        .deploy-git-pill .deploy-name { color: #334155; font-weight: 700; }
+        .deploy-git-pill .deploy-sep { color: #cbd5e1; }
+        .deploy-git-pill code {
+            padding: 0.18rem 0.38rem;
+            border-radius: 999px;
+            background: #f1f5f9;
+            color: #475569;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 0.68rem;
+        }
+        body.admin-dark .deploy-git-pill {
+            background: rgba(15,23,42,0.72);
+            border-color: #334155;
+            color: #94a3b8;
+        }
+        body.admin-dark .deploy-git-pill .deploy-name { color: #e2e8f0; }
+        body.admin-dark .deploy-git-pill .deploy-sep { color: #475569; }
+        body.admin-dark .deploy-git-pill code { background: #0f172a; color: #cbd5e1; }
         .admin-theme-toggle {
             width: 38px; height: 38px; border-radius: 10px; display: flex; align-items: center; justify-content: center;
             background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; transition: all .15s ease;
@@ -196,6 +246,13 @@
     <footer class="w-full text-center py-6 text-sm text-gray-500 mt-auto border-t bg-white/40" style="border-color:var(--brand-200)">
         <p class="font-semibold" id="footer-line1" style="color:var(--brand-600)">問卷調查系統</p>
         <p class="mt-1 cursor-default select-none" id="admin-trigger">Ken survey sys. © 2026</p>
+        <a id="deploy-git-pill" class="deploy-git-pill" href="https://github.com/kencyue/surveycake" target="_blank" rel="noopener noreferrer" title="GitHub 部署版本">
+            <span class="deploy-dot" aria-hidden="true"></span>
+            <span class="deploy-name">SurveyCake</span>
+            <span class="deploy-sep">｜</span>
+            <span id="deploy-git-time">部署版本</span>
+            <code id="deploy-git-sha">GitHub</code>
+        </a>
     </footer>
 
     <!-- Message Modal -->
@@ -425,12 +482,49 @@
             btnBack: document.getElementById('btn-back'),
             adminTrigger: document.getElementById('admin-trigger'),
             footerLine1: document.getElementById('footer-line1'),
+            deployGitPill: document.getElementById('deploy-git-pill'),
+            deployGitTime: document.getElementById('deploy-git-time'),
+            deployGitSha: document.getElementById('deploy-git-sha'),
             countdownBar: document.getElementById('countdown-bar'),
         };
 
+        let deployVersionInfo = null;
+        let deployVersionLoading = null;
+
+        async function loadDeployVersion() {
+            if (deployVersionInfo) return deployVersionInfo;
+            if (deployVersionLoading) return deployVersionLoading;
+            deployVersionLoading = (async () => {
+                try {
+                    const res = await fetch('/deploy-version.json?t=' + Date.now(), { cache: 'no-store' });
+                    if (!res.ok) throw new Error('deploy-version.json ' + res.status);
+                    deployVersionInfo = await res.json();
+                    const fullSha = String(deployVersionInfo.commit || '');
+                    const shortSha = fullSha.slice(0, 7);
+                    DOM.deployGitTime.textContent = deployVersionInfo.deployedAt ? '部署 ' + deployVersionInfo.deployedAt : '部署版本';
+                    DOM.deployGitSha.textContent = shortSha || 'GitHub';
+                    DOM.deployGitPill.href = fullSha
+                        ? 'https://github.com/kencyue/surveycake/commit/' + encodeURIComponent(fullSha)
+                        : 'https://github.com/kencyue/surveycake';
+                    DOM.deployGitPill.title = fullSha ? 'GitHub commit ' + fullSha : 'GitHub: kencyue/surveycake';
+                } catch (e) {
+                    console.warn('Load deploy version failed:', e);
+                    DOM.deployGitTime.textContent = '部署版本';
+                    DOM.deployGitSha.textContent = 'GitHub';
+                    DOM.deployGitPill.href = 'https://github.com/kencyue/surveycake';
+                } finally {
+                    deployVersionLoading = null;
+                }
+                return deployVersionInfo;
+            })();
+            return deployVersionLoading;
+        }
+
         function applyAdminChrome() {
             applyTheme('neutral');
+            document.body.classList.toggle('admin-mode', state.isAdminMode);
             document.body.classList.toggle('admin-dark', state.adminThemeMode === 'dark');
+            if (state.isAdminMode) loadDeployVersion();
         }
         function setAdminThemeMode(mode) {
             state.adminThemeMode = mode;
@@ -1237,7 +1331,7 @@
             if (unsubResponses) { unsubResponses(); unsubResponses = null; }
             if (unsubFolders) { unsubFolders(); unsubFolders = null; }
             state.isAdminMode = false;
-            document.body.classList.remove('admin-dark');
+            document.body.classList.remove('admin-mode', 'admin-dark');
             applyTheme('neutral');
             const params = new URLSearchParams(window.location.search);
             params.delete('s');
