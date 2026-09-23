@@ -1,0 +1,82 @@
+name: Deploy Firebase Hosting
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: firebase-hosting-production
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SURVEY_49DAA }}
+      FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Bootstrap source from current production
+        if: ${{ hashFiles('public/index.html') == '' }}
+        shell: bash
+        run: |
+          mkdir -p public
+          curl --fail --silent --show-error --location https://survey-49daa.web.app/ --output public/index.html
+          test -s public/index.html
+
+      - name: Apply repository fixes
+        run: python3 scripts/patch_live_source.py
+
+      - name: Validate inline module JavaScript
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          html = Path("public/index.html").read_text(encoding="utf-8")
+          matches = re.findall(r'<script[^>]*type=["\x27]module["\x27][^>]*>(.*?)</script>', html, flags=re.S | re.I)
+          if not matches:
+              raise SystemExit("No inline module script found")
+          Path("/tmp/survey-app.mjs").write_text(max(matches, key=len), encoding="utf-8")
+          PY
+          node --check /tmp/survey-app.mjs
+
+      - name: Save bootstrapped source back to repository
+        shell: bash
+        run: |
+          if git diff --quiet -- public/index.html; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add public/index.html
+          git commit -m "fix: sync production source and refresh survey before start"
+          git push
+
+      - name: Deploy with Firebase service account
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_SURVEY_49DAA }}
+          channelId: live
+          projectId: survey-49daa
+
+      - name: Deploy with Firebase CI token
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT == '' && env.FIREBASE_TOKEN != '' }}
+        shell: bash
+        run: npx --yes firebase-tools@latest deploy --only hosting --project survey-49daa --token "$FIREBASE_TOKEN"
+
+      - name: Firebase credential status
+        if: ${{ env.FIREBASE_SERVICE_ACCOUNT == '' && env.FIREBASE_TOKEN == '' }}
+        shell: bash
+        run: |
+          echo "::warning::Repository source is ready, but Firebase deploy credentials are not configured."
+          echo "Add either FIREBASE_SERVICE_ACCOUNT_SURVEY_49DAA or FIREBASE_TOKEN as a repository Actions secret."
