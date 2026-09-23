@@ -623,6 +623,7 @@
         async function enterPicker() {
             state.mode = 'picker';
             applyTheme('neutral');
+            document.title = '問卷調查系統';
             DOM.footerLine1.textContent = '問卷調查系統';
             render();
             try {
@@ -659,6 +660,7 @@
                 state.activeSurvey = survey;
                 state.activeSurveyId = id;
                 applyTheme(survey.theme || 'orange');
+                document.title = survey.title || '問卷調查系統';
                 DOM.footerLine1.textContent = survey.title || '問卷調查';
                 state.pages = computePages(survey.questions || []);
                 state.currentPageIndex = 0;
@@ -835,6 +837,7 @@
                     const latestSurvey = { id: snap.id, ...snap.data() };
                     state.activeSurvey = latestSurvey;
                     applyTheme(latestSurvey.theme || 'orange');
+                    document.title = latestSurvey.title || '問卷調查系統';
                     DOM.footerLine1.textContent = latestSurvey.title || '問卷調查';
                     state.pages = computePages(latestSurvey.questions || []);
                     state.answers = {};
