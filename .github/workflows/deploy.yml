@@ -60,6 +60,12 @@ jobs:
           git commit -m "fix: sync production source and refresh survey before start"
           git push
 
+      - name: Generate deployment version
+        shell: bash
+        run: |
+          DEPLOYED_AT="$(TZ=Asia/Taipei date '+%Y-%m-%d %H:%M')"
+          printf '{"project":"SurveyCake","commit":"%s","deployedAt":"%s"}\n' "$GITHUB_SHA" "$DEPLOYED_AT" > public/deploy-version.json
+
       - name: Deploy with Firebase service account
         if: ${{ env.FIREBASE_SERVICE_ACCOUNT != '' }}
         uses: FirebaseExtended/action-hosting-deploy@v0
