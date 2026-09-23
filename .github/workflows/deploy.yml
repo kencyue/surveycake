@@ -51,7 +51,7 @@ jobs:
       - name: Save bootstrapped source back to repository
         shell: bash
         run: |
-          if git diff --quiet -- public/index.html; then
+          if [ -z "$(git status --porcelain -- public/index.html)" ]; then
             exit 0
           fi
           git config user.name "github-actions[bot]"
