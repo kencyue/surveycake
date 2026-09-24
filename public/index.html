@@ -1861,26 +1861,28 @@
             const foot = cards.find(el => el.querySelector('#ed-thanks-title'));
             const pricing = cards.find(el => el.querySelector('#ed-pricing-enabled'));
             const questions = cards.find(el => el.querySelector('#question-editor-list'));
-            if (!head || !foot || !questions) return;
+            if (!head || !foot || !questions || !pricing) return;
             head.dataset.editorSection = 'head';
-            foot.dataset.editorSection = 'foot';
-            if (pricing) pricing.dataset.editorSection = 'foot';
             questions.dataset.editorSection = 'questions';
+            pricing.dataset.editorSection = 'pricing';
+            foot.dataset.editorSection = 'foot';
             const bar = document.createElement('div');
-            bar.className = 'editor-section-tabs bg-white rounded-2xl shadow-sm border border-gray-100 p-1 grid grid-cols-3 gap-1 sticky top-2 z-20';
+            bar.className = 'editor-section-tabs bg-white rounded-2xl shadow-sm border border-gray-100 p-1 grid grid-cols-4 gap-1 sticky top-2 z-20';
             bar.innerHTML = `
-                <button data-tab="head" class="editor-section-tab rounded-xl py-2.5 px-3 text-sm font-bold"><i class="fas fa-heading mr-1"></i>頁首</button>
-                <button data-tab="questions" class="editor-section-tab rounded-xl py-2.5 px-3 text-sm font-bold"><i class="fas fa-list-ol mr-1"></i>題目</button>
-                <button data-tab="foot" class="editor-section-tab rounded-xl py-2.5 px-3 text-sm font-bold"><i class="fas fa-shoe-prints mr-1"></i>頁尾</button>`;
+                <button data-tab="head" class="editor-section-tab rounded-xl py-2.5 px-2 text-xs sm:text-sm font-bold"><i class="fas fa-sliders mr-1"></i><span class="hidden sm:inline">基本</span><span class="sm:hidden">基本</span></button>
+                <button data-tab="questions" class="editor-section-tab rounded-xl py-2.5 px-2 text-xs sm:text-sm font-bold"><i class="fas fa-list-ol mr-1"></i>題目</button>
+                <button data-tab="pricing" class="editor-section-tab rounded-xl py-2.5 px-2 text-xs sm:text-sm font-bold"><i class="fas fa-calculator mr-1"></i>費用</button>
+                <button data-tab="foot" class="editor-section-tab rounded-xl py-2.5 px-2 text-xs sm:text-sm font-bold"><i class="fas fa-heart mr-1"></i>頁尾</button>`;
             root.insertBefore(bar, head);
             const activate = tab => {
-                root.querySelectorAll('[data-editor-section]').forEach(el => el.classList.toggle('hidden', el.dataset.editorSection !== tab));
+                const valid = ['head','questions','pricing','foot'].includes(tab) ? tab : 'head';
+                root.querySelectorAll('[data-editor-section]').forEach(el => el.classList.toggle('hidden', el.dataset.editorSection !== valid));
                 bar.querySelectorAll('.editor-section-tab').forEach(btn => {
-                    const on = btn.dataset.tab === tab;
-                    btn.className = `editor-section-tab rounded-xl py-2.5 px-3 text-sm font-bold transition-colors ${on ? 'text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`;
+                    const on = btn.dataset.tab === valid;
+                    btn.className = `editor-section-tab rounded-xl py-2.5 px-2 text-xs sm:text-sm font-bold transition-colors ${on ? 'text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`;
                     btn.style.backgroundColor = on ? 'var(--brand-500)' : '';
                 });
-                try { sessionStorage.setItem('surveyEditorTab', tab); } catch(e) {}
+                try { sessionStorage.setItem('surveyEditorTab', valid); } catch(e) {}
             };
             bar.querySelectorAll('button').forEach(btn => btn.addEventListener('click', () => activate(btn.dataset.tab)));
             let initial = 'head';
@@ -1889,7 +1891,7 @@
         }
 
         function enhancePricingSwitches() {
-            DOM.root.querySelectorAll('input[type="checkbox"][data-field="pricingEnabled"], #ed-pricing-enabled').forEach(input => {
+            DOM.root.querySelectorAll('input[type="checkbox"][data-field="pricingEnabled"], #ed-pricing-enabled, #ed-pricing-people-enabled').forEach(input => {
                 if (input.dataset.switchReady) return;
                 input.dataset.switchReady = '1';
                 input.classList.add('sr-only');
@@ -1930,13 +1932,19 @@
                             <label class="block text-sm font-bold text-gray-700 mb-1">問卷標題</label>
                             <input id="ed-title" type="text" class="w-full border-2 border-gray-200 rounded-xl py-2.5 px-3 focus:outline-none focus:border-[var(--brand-500)]" value="${escapeHtml(s.title)}">
                         </div>
-                        <div>
-                            <label class="block text-sm font-bold text-gray-700 mb-1">自訂網址 ID <span class="font-normal text-gray-400">（選填）</span></label>
-                            <div class="flex items-center border-2 border-gray-200 rounded-xl overflow-hidden bg-white focus-within:border-[var(--brand-500)]">
-                                <span class="hidden sm:block text-xs text-gray-400 bg-gray-50 px-3 py-2.5 border-r border-gray-200">?s=</span>
-                                <input id="ed-slug" type="text" maxlength="60" class="flex-grow min-w-0 py-2.5 px-3 focus:outline-none text-sm" value="${escapeHtml(s.slug || '')}" placeholder="留白＝系統亂數，例如 family-trip-2026">
+                        <div class="rounded-2xl border-2 p-4" style="border-color:var(--brand-200);background-color:var(--brand-50)">
+                            <div class="flex items-start gap-3 mb-3">
+                                <div class="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style="background-color:var(--brand-100);color:var(--brand-600)"><i class="fas fa-link"></i></div>
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-800">問卷網址</label>
+                                    <p class="text-xs text-gray-500 mt-0.5">可設定好記的自訂網址 ID；留白時仍使用原本的系統亂數 ID。</p>
+                                </div>
                             </div>
-                            <div id="ed-slug-status" class="text-xs mt-1.5 text-gray-400">英文小寫、數字、-、_；留白使用系統亂數網址。原本的亂數網址仍永久有效。</div>
+                            <div class="flex items-center border-2 border-gray-200 rounded-xl overflow-hidden bg-white focus-within:border-[var(--brand-500)]">
+                                <span class="text-xs text-gray-400 bg-gray-50 px-3 py-2.5 border-r border-gray-200">?s=</span>
+                                <input id="ed-slug" type="text" maxlength="60" class="flex-grow min-w-0 py-2.5 px-3 focus:outline-none text-sm" value="${escapeHtml(s.slug || '')}" placeholder="例如 family-trip-2026（可留白）">
+                            </div>
+                            <div id="ed-slug-status" class="text-xs mt-2 text-gray-500"><i class="fas fa-circle-info mr-1"></i>英文小寫、數字、-、_；留白＝系統亂數。原本亂數網址會繼續有效，不會失效。</div>
                         </div>
                         <div>
                             <label class="block text-sm font-bold text-gray-700 mb-1">說明文字（首頁顯示）</label>
@@ -1997,37 +2005,66 @@
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
-                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                            <h2 class="font-bold text-gray-800"><i class="fas fa-calculator mr-2" style="color:var(--brand-500)"></i>費用計算設定</h2>
-                            <label class="flex items-center justify-between sm:justify-end gap-3 text-sm font-bold rounded-xl bg-gray-50 px-3 py-2"><span>啟用最後金額確認</span><input type="checkbox" id="ed-pricing-enabled" ${s.pricing?.enabled ? 'checked' : ''}></label>
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-5">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <div class="w-9 h-9 rounded-xl flex items-center justify-center" style="background-color:var(--brand-100);color:var(--brand-600)"><i class="fas fa-calculator"></i></div>
+                                <div>
+                                    <h2 class="font-bold text-gray-800">費用計算設定</h2>
+                                    <p class="text-xs text-gray-400 mt-0.5">控制送出前的金額確認，以及固定每人費用與各題價格。</p>
+                                </div>
+                            </div>
                         </div>
-                        <p class="text-xs text-gray-400">啟用後，填答者送出前會多一頁「最後統計預覽確認」。單選／多選／多選圖卡／人數統計皆可個別開啟「納入金額統計」並維護價格。</p>
-                        <div id="pricing-global-fields" class="${s.pricing?.enabled ? '' : 'hidden'} space-y-3">
-                            <div class="rounded-xl border border-gray-100 bg-gray-50 p-3 space-y-3">
-                                <label class="flex items-center justify-between gap-3 text-sm font-bold text-gray-700">
-                                    <span><i class="fas fa-users mr-2" style="color:var(--brand-500)"></i>依總人數計算固定費用 <span class="font-normal text-gray-400">（選填）</span></span>
+
+                        <div class="rounded-2xl border-2 p-4" style="border-color:${s.pricing?.enabled ? 'var(--brand-300)' : '#e5e7eb'};background-color:${s.pricing?.enabled ? 'var(--brand-50)' : '#f9fafb'}">
+                            <label class="flex items-center justify-between gap-4 cursor-pointer">
+                                <div class="min-w-0">
+                                    <div class="font-bold text-gray-800">① 啟用最後金額確認</div>
+                                    <div class="text-xs text-gray-500 mt-1">開啟後，填答者送出前會看到「最後統計預覽確認」頁。</div>
+                                </div>
+                                <input type="checkbox" id="ed-pricing-enabled" ${s.pricing?.enabled ? 'checked' : ''}>
+                            </label>
+                        </div>
+
+                        <div id="pricing-global-fields" class="${s.pricing?.enabled ? '' : 'hidden'} space-y-4">
+                            <div class="rounded-2xl border border-gray-200 p-4 space-y-4">
+                                <label class="flex items-center justify-between gap-4 cursor-pointer">
+                                    <div class="min-w-0">
+                                        <div class="font-bold text-gray-800">② 依總人數計算固定費用</div>
+                                        <div class="text-xs text-gray-500 mt-1">需要「每人費用 × 總人數」時才開啟；不影響各題自己的價格統計。</div>
+                                    </div>
                                     <input type="checkbox" id="ed-pricing-people-enabled" ${(s.pricing?.peopleEnabled || !!s.pricing?.peopleQuestionId) ? 'checked' : ''}>
                                 </label>
-                                <p class="text-[11px] leading-relaxed text-gray-400">只有需要「每人固定費用 × 總人數」時才開啟。這個設定完全不影響其他題目的金額統計。</p>
-                                <div id="pricing-people-fields" class="${(s.pricing?.peopleEnabled || !!s.pricing?.peopleQuestionId) ? '' : 'hidden'} space-y-3">
-                                <div>
-                                <label class="block text-xs font-semibold text-gray-600 mb-1">哪一題代表總人數？</label>
-                                <select id="ed-pricing-people-qid" class="w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm bg-white">
-                                    <option value="">請選擇人數題目</option>
-                                    ${(s.questions || []).filter(q=>q.type==='counter_group').map(q=>`<option value="${q.id}" ${(s.pricing?.peopleQuestionId||'')===q.id?'selected':''}>${escapeHtml(q.label)}</option>`).join('')}
-                                </select>
-                            </div>
-                            <div class="rounded-xl border border-gray-100 bg-gray-50 p-3">
-                                <div class="text-xs font-bold text-gray-600 mb-1">每人固定費用 <span class="font-normal text-gray-400">（選填）</span></div>
-                                <p class="text-[11px] leading-relaxed text-gray-400 mb-3">只有設定金額時才需要選「總人數來源」。例如餐費每人 $900，可用「參加人數」自動乘算。</p>
-                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <label class="text-xs font-semibold text-gray-500">每人固定實際費用<input id="ed-pricing-person-actual" type="number" min="0" class="mt-1 w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm" value="${Number(s.pricing?.perPersonActual||0)}"></label>
-                                <label class="text-xs font-semibold text-gray-500">每人固定預收費用<input id="ed-pricing-person-prepay" type="number" min="0" class="mt-1 w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm" value="${Number(s.pricing?.perPersonPrepay||0)}"></label>
+
+                                <div id="pricing-people-fields" class="${(s.pricing?.peopleEnabled || !!s.pricing?.peopleQuestionId) ? '' : 'hidden'} space-y-4 border-t border-gray-100 pt-4">
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-700 mb-1.5">總人數來源是哪一題？</label>
+                                        <select id="ed-pricing-people-qid" class="w-full border-2 border-gray-200 rounded-xl py-2.5 px-3 text-sm bg-white focus:outline-none focus:border-[var(--brand-500)]">
+                                            <option value="">請選擇「人數統計」題目</option>
+                                            ${(s.questions || []).filter(q=>q.type==='counter_group').map(q=>`<option value="${q.id}" ${(s.pricing?.peopleQuestionId||'')===q.id?'selected':''}>${escapeHtml(q.label)}</option>`).join('')}
+                                        </select>
+                                        <p class="text-[11px] text-gray-400 mt-1.5">系統會把這一題所有計數項目相加，作為固定費用的總人數。</p>
+                                    </div>
+
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <label class="block text-xs font-bold text-gray-700">每人實際費用
+                                            <div class="relative mt-1"><span class="absolute left-3 top-2.5 text-gray-400">$</span><input id="ed-pricing-person-actual" type="number" min="0" class="w-full border-2 border-gray-200 rounded-xl py-2 pl-7 pr-3 text-sm focus:outline-none focus:border-[var(--brand-500)]" value="${Number(s.pricing?.perPersonActual||0)}"></div>
+                                        </label>
+                                        <label class="block text-xs font-bold text-gray-700">每人預收費用
+                                            <div class="relative mt-1"><span class="absolute left-3 top-2.5 text-gray-400">$</span><input id="ed-pricing-person-prepay" type="number" min="0" class="w-full border-2 border-gray-200 rounded-xl py-2 pl-7 pr-3 text-sm focus:outline-none focus:border-[var(--brand-500)]" value="${Number(s.pricing?.perPersonPrepay||0)}"></div>
+                                        </label>
+                                    </div>
+
+                                    <label class="block text-xs font-bold text-gray-700">費用名稱
+                                        <input id="ed-pricing-person-label" type="text" class="mt-1 w-full border-2 border-gray-200 rounded-xl py-2.5 px-3 text-sm focus:outline-none focus:border-[var(--brand-500)]" value="${escapeHtml(s.pricing?.perPersonLabel||'每人固定費用')}" placeholder="例如：餐費、活動費">
+                                    </label>
                                 </div>
                             </div>
-                            <label class="block text-xs font-semibold text-gray-500">每人固定費用名稱<input id="ed-pricing-person-label" type="text" class="mt-1 w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm" value="${escapeHtml(s.pricing?.perPersonLabel||'每人固定費用')}" placeholder="例如：D1晚餐＋D2午餐"></label>
-                                </div>
+
+                            <div class="rounded-2xl border border-blue-100 bg-blue-50 p-4 text-xs text-blue-700 leading-relaxed">
+                                <div class="font-bold mb-1"><i class="fas fa-circle-info mr-1"></i>各題價格怎麼設定？</div>
+                                到「題目」分頁，在 <b>單選／多選／多選圖卡／人數統計</b> 題目中開啟「納入金額統計」，即可設定各選項或項目的實際費用與預收費用。
+                            </div>
                         </div>
                     </div>
 
@@ -2171,10 +2208,10 @@
                 typeSpecificHtml = `
                     <div class="space-y-3">
                         <label class="flex items-center justify-between gap-3 rounded-xl border p-3 text-sm font-bold ${questionHasPricing(q) ? 'border-[var(--brand-200)] bg-[var(--brand-50)]' : 'border-gray-200 bg-gray-50'}">
-                            <span><i class="fas fa-calculator mr-2" style="color:var(--brand-500)"></i>納入金額統計</span>
+                            <span><i class="fas fa-calculator mr-2" style="color:var(--brand-500)"></i>${typeMeta.label}｜納入金額統計</span>
                             <input type="checkbox" class="q-field" data-idx="${idx}" data-field="pricingEnabled" data-bool="1" ${questionHasPricing(q) ? 'checked' : ''}>
                         </label>
-                        <p class="text-[11px] text-gray-400">開啟後，所選選項的實際單價／預收單價會列入最後金額確認與後台費用統計。</p>
+                        <p class="text-[11px] text-gray-400">開啟後，下方每個選項都會顯示「實際費用／預收費用」欄位，選到的項目才會納入計算。</p>
                     </div>
                     <div class="flex flex-wrap gap-4 text-sm">
                         <label class="flex items-center gap-1.5"><input type="checkbox" class="q-field" data-idx="${idx}" data-field="allowCustom" data-bool="1" ${q.allowCustom ? 'checked' : ''}> 允許其他自填</label>
@@ -2191,8 +2228,8 @@
                                 <div class="option-pricing-panel ${questionHasPricing(q) ? '' : 'hidden'} rounded-lg p-2" style="background-color:var(--brand-50);border:1px solid var(--brand-100)">
                                     <div class="text-[11px] font-bold mb-2" style="color:var(--brand-700)"><i class="fas fa-dollar-sign mr-1"></i>費用設定</div>
                                     <div class="grid grid-cols-2 gap-2">
-                                        <label class="text-[11px] text-gray-500">實際單價<input type="number" min="0" class="opt-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-oi="${oi}" data-price-field="actualUnitPrice" value="${Number(opt.pricing?.actualUnitPrice||0)}"></label>
-                                        <label class="text-[11px] text-gray-500">預收單價<input type="number" min="0" class="opt-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-oi="${oi}" data-price-field="prepayUnitPrice" value="${Number(opt.pricing?.prepayUnitPrice||0)}"></label>
+                                        <label class="text-[11px] text-gray-500">實際費用<input type="number" min="0" class="opt-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-oi="${oi}" data-price-field="actualUnitPrice" value="${Number(opt.pricing?.actualUnitPrice||0)}"></label>
+                                        <label class="text-[11px] text-gray-500">預收費用<input type="number" min="0" class="opt-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-oi="${oi}" data-price-field="prepayUnitPrice" value="${Number(opt.pricing?.prepayUnitPrice||0)}"></label>
                                     </div>
                                 </div>
                                 ${q.type === 'choice_cards' ? `
@@ -2208,10 +2245,10 @@
                 typeSpecificHtml = `
                     <div class="space-y-3">
                         <label class="flex items-center justify-between gap-3 rounded-xl border p-3 text-sm font-bold ${questionHasPricing(q) ? 'border-[var(--brand-200)] bg-[var(--brand-50)]' : 'border-gray-200 bg-gray-50'}">
-                            <span><i class="fas fa-calculator mr-2" style="color:var(--brand-500)"></i>納入金額統計</span>
+                            <span><i class="fas fa-calculator mr-2" style="color:var(--brand-500)"></i>${typeMeta.label}｜納入金額統計</span>
                             <input type="checkbox" class="q-field" data-idx="${idx}" data-field="pricingEnabled" data-bool="1" ${questionHasPricing(q) ? 'checked' : ''}>
                         </label>
-                        <p class="text-[11px] text-gray-400">開啟後，此題各項目的單價／預收／級距／年齡票價會列入最後金額確認與後台費用統計。</p>
+                        <p class="text-[11px] text-gray-400">開啟後，下方每個人數項目都可設定「實際費用／預收費用」，也可使用級距或年齡票價規則。</p>
                         <div class="text-xs font-semibold text-gray-500">計數項目：</div>
                         ${q.items.map((item, ii) => `
                             <div class="border border-gray-200 rounded-lg p-2 space-y-1.5">
@@ -2223,8 +2260,8 @@
                                 <div class="item-pricing-panel ${questionHasPricing(q) ? '' : 'hidden'} rounded-lg p-2 space-y-2" style="background-color:var(--brand-50);border:1px solid var(--brand-100)">
                                     <div class="text-[11px] font-bold" style="color:var(--brand-700)"><i class="fas fa-dollar-sign mr-1"></i>費用設定</div>
                                     <div class="grid grid-cols-2 gap-2">
-                                        <label class="text-[11px] text-gray-500">實際單價<input type="number" min="0" class="item-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-ii="${ii}" data-price-field="actualUnitPrice" value="${Number(item.pricing?.actualUnitPrice||0)}"></label>
-                                        <label class="text-[11px] text-gray-500">預收單價<input type="number" min="0" class="item-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-ii="${ii}" data-price-field="prepayUnitPrice" value="${Number(item.pricing?.prepayUnitPrice||0)}"></label>
+                                        <label class="text-[11px] text-gray-500">實際費用<input type="number" min="0" class="item-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-ii="${ii}" data-price-field="actualUnitPrice" value="${Number(item.pricing?.actualUnitPrice||0)}"></label>
+                                        <label class="text-[11px] text-gray-500">預收費用<input type="number" min="0" class="item-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-ii="${ii}" data-price-field="prepayUnitPrice" value="${Number(item.pricing?.prepayUnitPrice||0)}"></label>
                                     </div>
                                     <label class="block text-[11px] text-gray-500">數量級距單價<input type="text" class="item-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-ii="${ii}" data-price-field="tierRules" value="${escapeHtml(item.pricing?.tierRules||'')}" placeholder="例如 15:750,20:700,50:650"></label>
                                     ${item.ageOptions ? `<label class="block text-[11px] text-gray-500">年齡票價<input type="text" class="item-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-ii="${ii}" data-price-field="agePriceRules" value="${escapeHtml(item.pricing?.agePriceRules||'')}" placeholder="例如 0-6:230,7+:285"></label>` : ''}
