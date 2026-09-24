@@ -35,7 +35,8 @@ jobs:
         run: |
           python3 scripts/patch_live_source.py
           python3 scripts/patch_pricing_summary.py
-          python3 scripts/patch_generic_pricing.py
+          # Generic pricing base is already committed in public/index.html.
+          # Keep deploy deterministic; pricing UI changes are committed directly to source.
 
       - name: Validate inline module JavaScript
         shell: bash
