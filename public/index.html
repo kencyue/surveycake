@@ -1179,15 +1179,19 @@
             renderCurrentQuestions(state.pages[state.currentPageIndex]);
         });
 
-        function calculatePricingSummary() {
-            const survey = state.activeSurvey || {};
+        function getPricingConfig(survey) {
+            survey = survey || {};
             let p = survey.pricing;
-            // Backward-compatible fallback: older injected copies may not yet contain pricing metadata.
             if ((!p || !p.enabled) && (survey.questions || []).some(q => q.id === 'attendees') && (survey.questions || []).some(q => q.id === 'rooms')) {
                 p = { enabled:true, attendeeQuestionId:'attendees', adultItemId:'adult', childItemId:'child', roomQuestionId:'rooms', twinItemId:'twin', quadItemId:'quad', extraBedItemId:'extra', shirtQuestionId:'shirts' };
             }
-            if (!p || !p.enabled) return null;
-            const answers = state.answers || {};
+            return p && p.enabled ? p : null;
+        }
+
+        function calculatePricingSummaryFor(survey, answers) {
+            const p = getPricingConfig(survey);
+            if (!p) return null;
+            answers = answers || {};
             const count = (qid, itemId) => Number(answers[qid]?.counts?.[itemId] || 0);
             const attendeeQ = p.attendeeQuestionId;
             const adults = count(attendeeQ, p.adultItemId);
@@ -1217,6 +1221,10 @@
             return { adults, children, totalPeople, child7plus, childUnder7, twin, quad, extra, shirts, shirtTier, roomActual, ticketsActual, mealsActual, shirtActual, projectedTotal, prepayTotal };
         }
 
+        function calculatePricingSummary() {
+            return calculatePricingSummaryFor(state.activeSurvey || {}, state.answers || {});
+        }
+
         function pricingSummaryHtml(x, compact = false) {
             if (!x) return '';
             const money = n => Number(n || 0).toLocaleString('zh-TW');
@@ -1236,11 +1244,11 @@
         }
 
         function renderPricingSummary() { return pricingSummaryHtml(calculatePricingSummary(), false); }
-
         function renderAdminPricingSummary(summary) { return summary ? pricingSummaryHtml(summary, true) : ''; }
 
         function buildAdminPricingAggregate(rows) {
-            const summaries = rows.map(r => r.pricingSummary).filter(Boolean);
+            const survey = state.viewingSurveyMeta || {};
+            const summaries = rows.map(r => r.pricingSummary || calculatePricingSummaryFor(survey, r.answers || {})).filter(Boolean);
             if (!summaries.length) return '';
             const sum = key => summaries.reduce((a,s) => a + Number(s[key] || 0), 0);
             const money = n => Number(n || 0).toLocaleString('zh-TW');
@@ -1256,28 +1264,45 @@
         }
 
         function renderFillPage() {
+            const isPricingReview = state.currentPageIndex === state.pages.length;
+            const hasPricing = !!getPricingConfig(state.activeSurvey || {});
+            if (isPricingReview && hasPricing) {
+                DOM.root.innerHTML = `
+                    <div class="w-full animate-slide-up">
+                        ${renderPricingSummary()}
+                        <button id="btn-page-next" class="w-full text-white font-bold py-4 px-8 rounded-2xl shadow-md transition-transform transform active:scale-95 text-lg flex items-center justify-center relative overflow-hidden" style="background-color:var(--brand-500)">
+                            <span id="submit-text">確認送出</span>
+                            <div id="submit-loader" class="hidden absolute inset-0 flex items-center justify-center" style="background-color:var(--brand-600)"><i class="fas fa-spinner fa-spin text-2xl"></i></div>
+                        </button>
+                    </div>`;
+                document.getElementById('btn-page-next').addEventListener('click', async () => {
+                    if (!isSurveyOpenNow(state.activeSurvey)) return showMessage('問卷已截止', '問卷調查已截止，無法送出，感謝您的參與！', 'error');
+                    document.getElementById('submit-text').classList.add('invisible');
+                    document.getElementById('submit-loader').classList.remove('hidden');
+                    const ok = await submitResponse();
+                    if (ok) { state.mode = 'thanks'; render(); window.scrollTo(0, 0); }
+                    else { document.getElementById('submit-text').classList.remove('invisible'); document.getElementById('submit-loader').classList.add('hidden'); }
+                });
+                return;
+            }
+
             const pageQuestions = state.pages[state.currentPageIndex] || [];
-            const isLast = state.currentPageIndex === state.pages.length - 1;
+            const isLastQuestionPage = state.currentPageIndex === state.pages.length - 1;
+            const submitHere = isLastQuestionPage && !hasPricing;
             DOM.root.innerHTML = `
                 <div class="w-full animate-slide-up">
                     <div id="question-list"></div>
-                    ${isLast ? `<div id="pricing-summary-live">${renderPricingSummary()}</div>` : ''}
                     <button id="btn-page-next" class="w-full text-white font-bold py-4 px-8 rounded-2xl shadow-md transition-transform transform active:scale-95 text-lg flex items-center justify-center relative overflow-hidden" style="background-color:var(--brand-500)">
-                        <span id="submit-text">${isLast ? '確認送出' : '下一步'}</span>
+                        <span id="submit-text">${submitHere ? '確認送出' : (isLastQuestionPage ? '查看最後統計與金額' : '下一步')}</span>
                         <div id="submit-loader" class="hidden absolute inset-0 flex items-center justify-center" style="background-color:var(--brand-600)"><i class="fas fa-spinner fa-spin text-2xl"></i></div>
-                        ${!isLast ? '<i class="fas fa-arrow-right ml-2"></i>' : ''}
+                        ${submitHere ? '' : '<i class="fas fa-arrow-right ml-2"></i>'}
                     </button>
                 </div>`;
             renderCurrentQuestions(pageQuestions);
             document.getElementById('btn-page-next').addEventListener('click', async () => {
-                if (!isSurveyOpenNow(state.activeSurvey)) {
-                    showMessage('問卷已截止', '問卷調查已截止，無法再繼續填寫，感謝您的參與！', 'error');
-                    return;
-                }
+                if (!isSurveyOpenNow(state.activeSurvey)) return showMessage('問卷已截止', '問卷調查已截止，無法再繼續填寫，感謝您的參與！', 'error');
                 if (!validatePage(pageQuestions)) return;
-                if (!isLast) {
-                    state.currentPageIndex++; render(); window.scrollTo(0, 0); return;
-                }
+                if (!submitHere) { state.currentPageIndex++; render(); window.scrollTo(0, 0); return; }
                 document.getElementById('submit-text').classList.add('invisible');
                 document.getElementById('submit-loader').classList.remove('hidden');
                 const ok = await submitResponse();
@@ -2149,6 +2174,7 @@
                     <div class="admin-card-detail ${isOpen ? 'open' : ''}" id="detail-${row.id}">
                         <div class="px-4 pb-4 space-y-3 border-t border-gray-100 pt-3">
                             ${(s.questions || []).map(q => renderAnswerDetail(q, row.answers ? row.answers[q.id] : undefined)).join('')}
+                            ${renderAdminPricingSummary(row.pricingSummary || calculatePricingSummaryFor(s, row.answers || {}))}
                             ${renderAdminPricingSummary(row.pricingSummary)}
                             <div class="flex justify-end pt-1">
                                 <button class="delete-btn text-xs text-red-400 hover:text-red-600 bg-red-50 hover:bg-red-100 px-3 py-2 rounded-lg transition-colors" data-id="${row.id}"><i class="fas fa-trash mr-1"></i>刪除此筆</button>
@@ -2345,7 +2371,7 @@
                     }
                     out[q.label] = str;
                 });
-                if (row.pricingSummary) { out['預估活動總額'] = row.pricingSummary.projectedTotal || 0; out['預收費用合計'] = row.pricingSummary.prepayTotal || 0; }
+                const pricing = row.pricingSummary || calculatePricingSummaryFor(s, row.answers || {}); if (pricing) { out['預估活動總額'] = pricing.projectedTotal || 0; out['預收費用合計'] = pricing.prepayTotal || 0; }
                 return out;
             });
         }
