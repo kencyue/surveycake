@@ -1491,6 +1491,52 @@
             });
         }
 
+        async function sha256Text(value) {
+            const data = new TextEncoder().encode(String(value || ''));
+            const hash = await crypto.subtle.digest('SHA-256', data);
+            return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+        function isSuperAdmin() { return !state.currentAdminRole || state.currentAdminRole === 'super'; }
+        function allowedFolderIds() { return isSuperAdmin() ? null : (state.currentAdminFolderIds || []); }
+        function adminCanAccessSurvey(s) { const ids = allowedFolderIds(); return ids === null || (!!s.folderId && ids.includes(s.folderId)); }
+        function adminCanAccessFolder(id) { const ids = allowedFolderIds(); return ids === null || ids.includes(id); }
+
+        async function createSecondaryAdminFlow() {
+            if (!isSuperAdmin()) return;
+            const name = await showPrompt('建立次級管理員', '請輸入管理員名稱：', '');
+            if (!name) return;
+            const password = await showPrompt('設定登入密碼', '請輸入次級管理員密碼：', '');
+            if (!password) return;
+            if (!state.adminFolders.length) return showMessage('尚無資料夾', '請先建立至少一個資料夾，再建立次級管理員。');
+            const folderText = state.adminFolders.map((f,i)=>`${i+1}. ${f.name}`).join('<br>');
+            const selected = await showPrompt('授權資料夾', `輸入資料夾編號，可用逗號選多個：<br>${folderText}`, '1');
+            if (!selected) return;
+            const indexes = String(selected).split(/[,，]/).map(x=>Number(x.trim())-1).filter(i=>i>=0 && i<state.adminFolders.length);
+            const folderIds = [...new Set(indexes.map(i=>state.adminFolders[i].id))];
+            if (!folderIds.length) return showMessage('未選擇資料夾', '至少要授權一個資料夾。', 'error');
+            const admins = Array.isArray(appSettings.secondaryAdmins) ? [...appSettings.secondaryAdmins] : [];
+            admins.push({ id:'adm_'+Date.now(), name, passwordHash:await sha256Text(password), folderIds, createdAt:new Date().toISOString() });
+            appSettings.secondaryAdmins = admins;
+            await setDoc(settingsRef(), { secondaryAdmins: admins }, { merge:true });
+            showMessage('建立完成', `已建立次級管理員「${escapeHtml(name)}」。`, 'success');
+        }
+
+        async function manageSecondaryAdminsFlow() {
+            if (!isSuperAdmin()) return;
+            const admins = Array.isArray(appSettings.secondaryAdmins) ? appSettings.secondaryAdmins : [];
+            if (!admins.length) return createSecondaryAdminFlow();
+            const rows = admins.map((a,i)=>`${i+1}. ${escapeHtml(a.name)}｜${(a.folderIds||[]).map(id=>escapeHtml(state.adminFolders.find(f=>f.id===id)?.name||'已刪除資料夾')).join('、')}`).join('<br>');
+            const action = await showPrompt('次級管理員', `${rows}<br><br>輸入「+」新增，或輸入編號刪除該管理員：`, '+');
+            if (!action) return;
+            if (action.trim() === '+') return createSecondaryAdminFlow();
+            const idx = Number(action)-1;
+            if (idx < 0 || idx >= admins.length) return showMessage('輸入錯誤','找不到這個管理員。','error');
+            if (!await showConfirm('刪除次級管理員', `確定刪除「${escapeHtml(admins[idx].name)}」？`)) return;
+            admins.splice(idx,1); appSettings.secondaryAdmins = admins;
+            await setDoc(settingsRef(), { secondaryAdmins: admins }, { merge:true });
+            showMessage('已刪除','次級管理員已刪除。','success');
+        }
+
         async function promptAdminLogin() {
             const pw = await showAdminLoginModal();
             if (pw === null) return;
@@ -1500,13 +1546,20 @@
                     try {
                         appSettings.adminPassword = pw;
                         await setDoc(settingsRef(), { adminPassword: pw }, { merge: true });
+                        state.currentAdminRole = 'super'; state.currentAdminName = '總管理員'; state.currentAdminFolderIds = [];
                         enterAdminDashboard();
                     } catch (e) { showMessage("錯誤", "密碼儲存失敗，請檢查網路連線", "error"); }
                 }
             } else if (pw === appSettings.adminPassword) {
+                state.currentAdminRole = 'super'; state.currentAdminName = '總管理員'; state.currentAdminFolderIds = [];
                 enterAdminDashboard();
             } else {
-                showMessage("登入失敗", "密碼錯誤", "error");
+                const hash = await sha256Text(pw);
+                const matched = (appSettings.secondaryAdmins || []).find(a => a.passwordHash === hash);
+                if (matched) {
+                    state.currentAdminRole = 'folder'; state.currentAdminName = matched.name || '次級管理員'; state.currentAdminFolderIds = matched.folderIds || [];
+                    enterAdminDashboard();
+                } else showMessage("登入失敗", "密碼錯誤", "error");
             }
         }
 
@@ -1515,6 +1568,7 @@
             if (unsubResponses) { unsubResponses(); unsubResponses = null; }
             if (unsubFolders) { unsubFolders(); unsubFolders = null; }
             state.isAdminMode = false;
+            state.currentAdminRole = null; state.currentAdminName = null; state.currentAdminFolderIds = [];
             document.body.classList.remove('admin-mode', 'admin-dark');
             applyTheme('neutral');
             const params = new URLSearchParams(window.location.search);
@@ -1535,7 +1589,7 @@
                 const list = [];
                 snap.forEach(d => list.push({ id: d.id, ...d.data() }));
                 list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-                state.adminSurveys = list;
+                state.adminSurveys = isSuperAdmin() ? list : list.filter(adminCanAccessSurvey);
                 if (state.mode === 'admin-dashboard') refreshAdminDashboardList();
             }, err => console.error(err));
             if (unsubFolders) unsubFolders();
@@ -1543,7 +1597,7 @@
                 const list = [];
                 snap.forEach(d => list.push({ id: d.id, ...d.data() }));
                 list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
-                state.adminFolders = list;
+                state.adminFolders = isSuperAdmin() ? list : list.filter(f => adminCanAccessFolder(f.id));
                 if (state.mode === 'admin-dashboard') refreshAdminDashboardList();
             }, err => console.error(err));
         }
@@ -1555,6 +1609,8 @@
                         <h1 class="text-xl font-bold text-gray-800"><i class="fas fa-layer-group mr-2" style="color:var(--brand-500)"></i>問卷管理</h1>
                         <div class="flex items-center gap-2">
                             ${adminThemeToggleHtml()}
+                            <span class="hidden sm:inline text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-500">${escapeHtml(state.currentAdminName || '總管理員')}</span>
+                            ${isSuperAdmin() ? '<button id="btn-manage-admins" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-2 rounded-lg font-medium"><i class="fas fa-user-shield mr-1"></i>管理員</button>' : ''}
                             <button id="btn-new-survey" class="text-white px-3 py-2 rounded-lg text-sm font-medium shadow-sm" style="background-color:var(--brand-500)"><i class="fas fa-plus mr-1"></i>新增問卷</button>
                             <button id="btn-exit-admin" class="text-xs text-gray-500 hover:text-red-500 bg-gray-100 hover:bg-red-50 px-2.5 py-1.5 rounded-lg transition-colors font-medium"><i class="fas fa-sign-out-alt mr-1"></i>登出</button>
                         </div>
@@ -1566,9 +1622,12 @@
                     </div>
                 </div>`;
             bindAdminThemeToggle();
+            const manageAdminsBtn = document.getElementById('btn-manage-admins');
+            if (manageAdminsBtn) manageAdminsBtn.addEventListener('click', manageSecondaryAdminsFlow);
             document.getElementById('btn-new-survey').addEventListener('click', () => {
                 state.editingSurvey = newSurvey();
                 if (state.currentFolderId) state.editingSurvey.folderId = state.currentFolderId;
+                else if (!isSuperAdmin()) state.editingSurvey.folderId = state.adminFolders[0]?.id || null;
                 state.editingSurveyId = null;
                 state.mode = 'admin-editor';
                 render();
@@ -1629,7 +1688,7 @@
                     <div class="folder-card bg-white border-2 border-gray-100 rounded-2xl p-3 cursor-pointer" data-folder-id="${f.id}">
                         <div class="flex items-start justify-between">
                             <i class="fas fa-folder text-2xl" style="color:var(--brand-500)"></i>
-                            <div class="flex gap-1">
+                            <div class="flex gap-1 ${isSuperAdmin() ? '' : 'hidden'}">
                                 <button class="folder-rename-btn text-gray-300 hover:text-gray-600 text-xs p-1" data-id="${f.id}"><i class="fas fa-pen"></i></button>
                                 <button class="folder-delete-btn text-gray-300 hover:text-red-500 text-xs p-1" data-id="${f.id}"><i class="fas fa-trash"></i></button>
                             </div>
@@ -1643,7 +1702,7 @@
                         <span class="text-xs font-medium">新增資料夾</span>
                     </button>`;
                 folderRow.classList.remove('hidden');
-                document.getElementById('btn-add-folder').addEventListener('click', createFolderFlow);
+                const addFolderBtn = document.getElementById('btn-add-folder'); if (addFolderBtn) { if (isSuperAdmin()) addFolderBtn.addEventListener('click', createFolderFlow); else addFolderBtn.remove(); }
                 folderRow.querySelectorAll('.folder-rename-btn').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); renameFolderFlow(b.dataset.id); }));
                 folderRow.querySelectorAll('.folder-delete-btn').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); deleteFolderFlow(b.dataset.id); }));
                 folderRow.querySelectorAll('.folder-card[data-folder-id]').forEach(card => {
@@ -1773,6 +1832,62 @@
             } catch (e) { showMessage('錯誤', '刪除失敗', 'error'); }
         }
 
+        function setupEditorSectionTabs() {
+            const root = DOM.root.querySelector('.animate-fade-in');
+            if (!root) return;
+            const cards = [...root.children].filter(el => el.classList && el.classList.contains('bg-white'));
+            const head = cards.find(el => el.querySelector('#ed-title'));
+            const foot = cards.find(el => el.querySelector('#ed-thanks-title'));
+            const pricing = cards.find(el => el.querySelector('#ed-pricing-enabled'));
+            const questions = cards.find(el => el.querySelector('#question-editor-list'));
+            if (!head || !foot || !questions) return;
+            head.dataset.editorSection = 'head';
+            foot.dataset.editorSection = 'foot';
+            if (pricing) pricing.dataset.editorSection = 'foot';
+            questions.dataset.editorSection = 'questions';
+            const bar = document.createElement('div');
+            bar.className = 'editor-section-tabs bg-white rounded-2xl shadow-sm border border-gray-100 p-1 grid grid-cols-3 gap-1 sticky top-2 z-20';
+            bar.innerHTML = `
+                <button data-tab="head" class="editor-section-tab rounded-xl py-2.5 px-3 text-sm font-bold"><i class="fas fa-heading mr-1"></i>頁首</button>
+                <button data-tab="questions" class="editor-section-tab rounded-xl py-2.5 px-3 text-sm font-bold"><i class="fas fa-list-ol mr-1"></i>題目</button>
+                <button data-tab="foot" class="editor-section-tab rounded-xl py-2.5 px-3 text-sm font-bold"><i class="fas fa-shoe-prints mr-1"></i>頁尾</button>`;
+            root.insertBefore(bar, head);
+            const activate = tab => {
+                root.querySelectorAll('[data-editor-section]').forEach(el => el.classList.toggle('hidden', el.dataset.editorSection !== tab));
+                bar.querySelectorAll('.editor-section-tab').forEach(btn => {
+                    const on = btn.dataset.tab === tab;
+                    btn.className = `editor-section-tab rounded-xl py-2.5 px-3 text-sm font-bold transition-colors ${on ? 'text-white shadow-sm' : 'text-gray-500 hover:bg-gray-50'}`;
+                    btn.style.backgroundColor = on ? 'var(--brand-500)' : '';
+                });
+                try { sessionStorage.setItem('surveyEditorTab', tab); } catch(e) {}
+            };
+            bar.querySelectorAll('button').forEach(btn => btn.addEventListener('click', () => activate(btn.dataset.tab)));
+            let initial = 'head';
+            try { initial = sessionStorage.getItem('surveyEditorTab') || 'head'; } catch(e) {}
+            activate(initial);
+        }
+
+        function enhancePricingSwitches() {
+            DOM.root.querySelectorAll('input[type="checkbox"][data-field="pricingEnabled"], #ed-pricing-enabled').forEach(input => {
+                if (input.dataset.switchReady) return;
+                input.dataset.switchReady = '1';
+                input.classList.add('sr-only');
+                const track = document.createElement('span');
+                track.className = 'pricing-switch-track relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full transition-colors';
+                const knob = document.createElement('span');
+                knob.className = 'absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all';
+                track.appendChild(knob);
+                input.insertAdjacentElement('afterend', track);
+                const paint = () => {
+                    track.style.backgroundColor = input.checked ? 'var(--brand-500)' : '#d1d5db';
+                    knob.style.left = input.checked ? '1.375rem' : '0.125rem';
+                };
+                track.addEventListener('click', e => { e.preventDefault(); input.click(); setTimeout(paint, 0); });
+                input.addEventListener('change', paint);
+                paint();
+            });
+        }
+
         function renderAdminEditor() {
             const s = state.editingSurvey;
             applyAdminChrome();
@@ -1800,7 +1915,7 @@
                         <div>
                             <label class="block text-sm font-bold text-gray-700 mb-1">所屬資料夾</label>
                             <select id="ed-folder" class="w-full border-2 border-gray-200 rounded-xl py-2.5 px-3 focus:outline-none focus:border-[var(--brand-500)] bg-white">
-                                <option value="">未分類</option>
+                                ${isSuperAdmin() ? '<option value="">未分類</option>' : ''}
                                 ${state.adminFolders.map(f => `<option value="${f.id}" ${s.folderId === f.id ? 'selected' : ''}>${escapeHtml(f.name)}</option>`).join('')}
                             </select>
                         </div>
