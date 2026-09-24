@@ -725,6 +725,22 @@
             return params.get('s');
         }
 
+        function normalizeSurveySlug(value) {
+            return String(value || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_-]/g, '').replace(/-+/g, '-').replace(/^[-_]+|[-_]+$/g, '');
+        }
+        const RESERVED_SURVEY_SLUGS = new Set(['admin','login','logout','inject','api','survey','surveys','settings','responses','response','new','edit','null','undefined']);
+        function surveyPublicKey(s) { return (s && s.slug) ? s.slug : (s && s.id ? s.id : ''); }
+        function surveyPublicLink(s) { return `${window.location.origin}${window.location.pathname}?s=${encodeURIComponent(surveyPublicKey(s))}`; }
+        async function resolveSurveyId(key) {
+            if (!key) return null;
+            const direct = await getDoc(surveyDocRef(key));
+            if (direct.exists()) return key;
+            const snap = await getDocs(surveysCol());
+            let found = null;
+            snap.forEach(d => { if (!found && normalizeSurveySlug(d.data()?.slug) === normalizeSurveySlug(key)) found = d.id; });
+            return found;
+        }
+
         async function boot() {
             await initAuth();
             const sid = getUrlSurveyId();
@@ -750,7 +766,7 @@
                 if (state.mode !== 'picker') return;
                 if (openOnes.length === 1) {
                     const params = new URLSearchParams(window.location.search);
-                    params.set('s', openOnes[0].id);
+                    params.set('s', surveyPublicKey(openOnes[0]));
                     history.replaceState(null, '', '?' + params.toString());
                     await enterSurveyById(openOnes[0].id);
                     return;
@@ -766,14 +782,19 @@
             state.mode = 'loading';
             render();
             try {
-                const snap = await getDoc(surveyDocRef(id));
+                const resolvedId = await resolveSurveyId(id);
+                if (!resolvedId) {
+                    await showMessage('找不到問卷', '這份問卷不存在，或已被刪除。');
+                    return enterPicker();
+                }
+                const snap = await getDoc(surveyDocRef(resolvedId));
                 if (!snap.exists()) {
                     await showMessage('找不到問卷', '這份問卷不存在，或已被刪除。');
                     return enterPicker();
                 }
                 const survey = { id: snap.id, ...snap.data() };
                 state.activeSurvey = survey;
-                state.activeSurveyId = id;
+                state.activeSurveyId = resolvedId;
                 applyTheme(survey.theme || 'orange');
                 document.title = survey.title || '問卷調查系統';
                 DOM.footerLine1.textContent = survey.title || '問卷調查';
@@ -1734,7 +1755,7 @@
             container.innerHTML = visibleSurveys.map(s => {
                 const status = surveyStatusLabel(s);
                 const theme = THEMES[s.theme] || THEMES.orange;
-                const link = `${window.location.origin}${window.location.pathname}?s=${s.id}`;
+                const link = surveyPublicLink(s);
                 return `
                 <div class="survey-card-drag bg-white rounded-2xl shadow-sm border border-gray-100 p-4" draggable="true" data-survey-id="${s.id}">
                     <div class="flex items-start gap-3">
@@ -1910,6 +1931,14 @@
                             <input id="ed-title" type="text" class="w-full border-2 border-gray-200 rounded-xl py-2.5 px-3 focus:outline-none focus:border-[var(--brand-500)]" value="${escapeHtml(s.title)}">
                         </div>
                         <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">自訂網址 ID <span class="font-normal text-gray-400">（選填）</span></label>
+                            <div class="flex items-center border-2 border-gray-200 rounded-xl overflow-hidden bg-white focus-within:border-[var(--brand-500)]">
+                                <span class="hidden sm:block text-xs text-gray-400 bg-gray-50 px-3 py-2.5 border-r border-gray-200">?s=</span>
+                                <input id="ed-slug" type="text" maxlength="60" class="flex-grow min-w-0 py-2.5 px-3 focus:outline-none text-sm" value="${escapeHtml(s.slug || '')}" placeholder="留白＝系統亂數，例如 family-trip-2026">
+                            </div>
+                            <div id="ed-slug-status" class="text-xs mt-1.5 text-gray-400">英文小寫、數字、-、_；留白使用系統亂數網址。原本的亂數網址仍永久有效。</div>
+                        </div>
+                        <div>
                             <label class="block text-sm font-bold text-gray-700 mb-1">說明文字（首頁顯示）</label>
                             <textarea id="ed-desc" class="w-full border-2 border-gray-200 rounded-xl py-2.5 px-3 focus:outline-none focus:border-[var(--brand-500)] resize-none h-24">${escapeHtml(s.description || '')}</textarea>
                         </div>
@@ -1969,22 +1998,27 @@
                     </div>
 
                     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 space-y-4">
-                        <div class="flex items-center justify-between">
+                        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                             <h2 class="font-bold text-gray-800"><i class="fas fa-calculator mr-2" style="color:var(--brand-500)"></i>費用計算設定</h2>
-                            <label class="flex items-center gap-2 text-sm font-bold"><input type="checkbox" id="ed-pricing-enabled" ${s.pricing?.enabled ? 'checked' : ''}> 啟用最後金額確認</label>
+                            <label class="flex items-center justify-between sm:justify-end gap-3 text-sm font-bold rounded-xl bg-gray-50 px-3 py-2"><span>啟用最後金額確認</span><input type="checkbox" id="ed-pricing-enabled" ${s.pricing?.enabled ? 'checked' : ''}></label>
                         </div>
                         <p class="text-xs text-gray-400">啟用後，填答者送出前會多一頁「最後統計預覽確認」。單選／多選／多選圖卡／人數統計皆可個別開啟「納入金額統計」並維護價格。</p>
                         <div id="pricing-global-fields" class="${s.pricing?.enabled ? '' : 'hidden'} space-y-3">
                             <div>
-                                <label class="block text-xs font-semibold text-gray-500 mb-1">參加人數來源</label>
+                                <label class="block text-xs font-semibold text-gray-600 mb-1">總人數來源 <span class="font-normal text-gray-400">（選填）</span></label>
+                                <p class="text-[11px] leading-relaxed text-gray-400 mb-2">只用來計算下方「每人固定費用 × 總人數」。不會影響其他題目的金額統計；其他題目仍依各自的「納入金額統計」開關計費。</p>
                                 <select id="ed-pricing-people-qid" class="w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm bg-white">
-                                    <option value="">不統計總人數</option>
+                                    <option value="">不使用總人數計算</option>
                                     ${(s.questions || []).filter(q=>q.type==='counter_group').map(q=>`<option value="${q.id}" ${(s.pricing?.peopleQuestionId||'')===q.id?'selected':''}>${escapeHtml(q.label)}</option>`).join('')}
                                 </select>
                             </div>
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div class="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                                <div class="text-xs font-bold text-gray-600 mb-1">每人固定費用 <span class="font-normal text-gray-400">（選填）</span></div>
+                                <p class="text-[11px] leading-relaxed text-gray-400 mb-3">只有設定金額時才需要選「總人數來源」。例如餐費每人 $900，可用「參加人數」自動乘算。</p>
+                                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <label class="text-xs font-semibold text-gray-500">每人固定實際費用<input id="ed-pricing-person-actual" type="number" min="0" class="mt-1 w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm" value="${Number(s.pricing?.perPersonActual||0)}"></label>
                                 <label class="text-xs font-semibold text-gray-500">每人固定預收費用<input id="ed-pricing-person-prepay" type="number" min="0" class="mt-1 w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm" value="${Number(s.pricing?.perPersonPrepay||0)}"></label>
+                                </div>
                             </div>
                             <label class="block text-xs font-semibold text-gray-500">每人固定費用名稱<input id="ed-pricing-person-label" type="text" class="mt-1 w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm" value="${escapeHtml(s.pricing?.perPersonLabel||'每人固定費用')}" placeholder="例如：D1晚餐＋D2午餐"></label>
                         </div>
@@ -2018,6 +2052,25 @@
             bindAdminThemeToggle();
             document.getElementById('btn-editor-back').addEventListener('click', () => { state.mode = 'admin-dashboard'; applyAdminChrome(); render(); });
             document.getElementById('ed-title').addEventListener('input', e => s.title = e.target.value);
+            const slugInput = document.getElementById('ed-slug');
+            const slugStatus = document.getElementById('ed-slug-status');
+            if (slugInput) {
+                slugInput.addEventListener('input', () => {
+                    const normalized = normalizeSurveySlug(slugInput.value);
+                    s.slug = normalized;
+                    if (!slugInput.value.trim()) {
+                        slugStatus.textContent = '未設定：使用系統亂數 ID，既有網址不受影響。';
+                        slugStatus.className = 'text-xs mt-1.5 text-gray-400';
+                    } else if (!normalized || RESERVED_SURVEY_SLUGS.has(normalized)) {
+                        slugStatus.textContent = '此網址 ID 無效或屬於系統保留字。';
+                        slugStatus.className = 'text-xs mt-1.5 text-red-500';
+                    } else {
+                        slugStatus.textContent = `預覽：?s=${normalized}（儲存時檢查重複）`;
+                        slugStatus.className = 'text-xs mt-1.5 text-green-600';
+                    }
+                });
+                slugInput.addEventListener('blur', () => { slugInput.value = normalizeSurveySlug(slugInput.value); s.slug = slugInput.value; });
+            }
             document.getElementById('ed-desc').addEventListener('input', e => s.description = e.target.value);
             document.getElementById('ed-hero').addEventListener('input', e => s.heroImg = e.target.value);
             document.getElementById('ed-folder').addEventListener('change', e => s.folderId = e.target.value || null);
@@ -2311,6 +2364,24 @@
         async function saveSurvey() {
             const s = state.editingSurvey;
             if (!s.title.trim()) { showMessage('尚未填寫', '請輸入問卷標題'); return; }
+            s.slug = normalizeSurveySlug(s.slug || '');
+            if (s.slug && RESERVED_SURVEY_SLUGS.has(s.slug)) { showMessage('網址 ID 不可使用', '這個網址 ID 是系統保留字，請換一個。'); return; }
+            if (s.slug) {
+                try {
+                    const slugSnap = await getDocs(surveysCol());
+                    let conflict = false;
+                    slugSnap.forEach(d => {
+                        if (d.id === state.editingSurveyId) return;
+                        const data = d.data() || {};
+                        if (d.id.toLowerCase() === s.slug || normalizeSurveySlug(data.slug) === s.slug) conflict = true;
+                    });
+                    if (conflict) { showMessage('網址 ID 已被使用', `「${s.slug}」已被其他問卷使用，請換一個。`); return; }
+                } catch (e) {
+                    console.error('slug collision check failed', e);
+                    showMessage('檢查失敗', '目前無法確認網址 ID 是否重複，為避免衝突暫不儲存。', 'error');
+                    return;
+                }
+            }
             const cleanQuestions = JSON.parse(JSON.stringify(s.questions)).map(q => { delete q._open; delete q._justAdded; return q; });
             const payload = { ...s, questions: cleanQuestions };
             delete payload.id;
