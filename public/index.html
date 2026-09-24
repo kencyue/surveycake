@@ -2021,16 +2021,12 @@
                             <div class="rounded-xl border border-gray-100 bg-gray-50 p-3">
                                 <div class="text-xs font-bold text-gray-600 mb-1">每人固定費用 <span class="font-normal text-gray-400">（選填）</span></div>
                                 <p class="text-[11px] leading-relaxed text-gray-400 mb-3">只有設定金額時才需要選「總人數來源」。例如餐費每人 $900，可用「參加人數」自動乘算。</p>
-                                <div class="rounded-xl border border-gray-100 bg-gray-50 p-3">
-                                <div class="text-xs font-bold text-gray-600 mb-1">每人固定費用 <span class="font-normal text-gray-400">（選填）</span></div>
-                                <p class="text-[11px] leading-relaxed text-gray-400 mb-3">只有設定金額時才需要選「總人數來源」。例如餐費每人 $900，可用「參加人數」自動乘算。</p>
                                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <label class="text-xs font-semibold text-gray-500">每人固定實際費用<input id="ed-pricing-person-actual" type="number" min="0" class="mt-1 w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm" value="${Number(s.pricing?.perPersonActual||0)}"></label>
                                 <label class="text-xs font-semibold text-gray-500">每人固定預收費用<input id="ed-pricing-person-prepay" type="number" min="0" class="mt-1 w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm" value="${Number(s.pricing?.perPersonPrepay||0)}"></label>
                                 </div>
                             </div>
                             <label class="block text-xs font-semibold text-gray-500">每人固定費用名稱<input id="ed-pricing-person-label" type="text" class="mt-1 w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm" value="${escapeHtml(s.pricing?.perPersonLabel||'每人固定費用')}" placeholder="例如：D1晚餐＋D2午餐"></label>
-                                </div>
                                 </div>
                         </div>
                     </div>
