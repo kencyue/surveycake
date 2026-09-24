@@ -32,7 +32,9 @@ jobs:
           test -s public/index.html
 
       - name: Apply repository fixes
-        run: python3 scripts/patch_live_source.py
+        run: |
+          python3 scripts/patch_live_source.py
+          python3 scripts/patch_pricing_summary.py
 
       - name: Validate inline module JavaScript
         shell: bash
@@ -48,7 +50,7 @@ jobs:
           PY
           node --check /tmp/survey-app.mjs
 
-      - name: Save bootstrapped source back to repository
+      - name: Save patched source back to repository
         shell: bash
         run: |
           if [ -z "$(git status --porcelain -- public/index.html)" ]; then
@@ -57,7 +59,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add public/index.html
-          git commit -m "fix: sync production source and refresh survey before start"
+          git commit -m "feat: apply survey runtime patches"
           git push
 
       - name: Generate deployment version
