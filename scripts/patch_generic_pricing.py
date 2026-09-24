@@ -130,7 +130,8 @@ summary = r'''        function pricingSummaryHtml(x, compact = false) {
 '''
 text = text[:start] + summary + text[end:]
 
-# 4) Admin survey-level pricing editor.
+# 4) Admin survey-level pricing editor. This section is deliberately idempotent because
+# the workflow commits the patched index.html back to main after a successful run.
 anchor = '''                    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5">
                         <div class="flex items-center justify-between mb-4">
                             <h2 class="font-bold text-gray-800"><i class="fas fa-list-ol mr-2" style="color:var(--brand-500)"></i>題目</h2>'''
@@ -142,17 +143,8 @@ if 'id="ed-pricing-enabled"' not in text and anchor in text:
                         </div>
                         <p class="text-xs text-gray-400">啟用後，填答者送出前會多一頁「最後統計預覽確認」。各計數項目的單價可在下方題目內維護。</p>
                         <div id="pricing-global-fields" class="${s.pricing?.enabled ? '' : 'hidden'} space-y-3">
-                            <div>
-                                <label class="block text-xs font-semibold text-gray-500 mb-1">參加人數來源</label>
-                                <select id="ed-pricing-people-qid" class="w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm bg-white">
-                                    <option value="">不統計總人數</option>
-                                    ${(s.questions || []).filter(q=>q.type==='counter_group').map(q=>`<option value="${q.id}" ${(s.pricing?.peopleQuestionId||'')===q.id?'selected':''}>${escapeHtml(q.label)}</option>`).join('')}
-                                </select>
-                            </div>
-                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <label class="text-xs font-semibold text-gray-500">每人固定實際費用<input id="ed-pricing-person-actual" type="number" min="0" class="mt-1 w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm" value="${Number(s.pricing?.perPersonActual||0)}"></label>
-                                <label class="text-xs font-semibold text-gray-500">每人固定預收費用<input id="ed-pricing-person-prepay" type="number" min="0" class="mt-1 w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm" value="${Number(s.pricing?.perPersonPrepay||0)}"></label>
-                            </div>
+                            <div><label class="block text-xs font-semibold text-gray-500 mb-1">參加人數來源</label><select id="ed-pricing-people-qid" class="w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm bg-white"><option value="">不統計總人數</option>${(s.questions || []).filter(q=>q.type==='counter_group').map(q=>`<option value="${q.id}" ${(s.pricing?.peopleQuestionId||'')===q.id?'selected':''}>${escapeHtml(q.label)}</option>`).join('')}</select></div>
+                            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3"><label class="text-xs font-semibold text-gray-500">每人固定實際費用<input id="ed-pricing-person-actual" type="number" min="0" class="mt-1 w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm" value="${Number(s.pricing?.perPersonActual||0)}"></label><label class="text-xs font-semibold text-gray-500">每人固定預收費用<input id="ed-pricing-person-prepay" type="number" min="0" class="mt-1 w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm" value="${Number(s.pricing?.perPersonPrepay||0)}"></label></div>
                             <label class="block text-xs font-semibold text-gray-500">每人固定費用名稱<input id="ed-pricing-person-label" type="text" class="mt-1 w-full border-2 border-gray-200 rounded-xl py-2 px-3 text-sm" value="${escapeHtml(s.pricing?.perPersonLabel||'每人固定費用')}" placeholder="例如：D1晚餐＋D2午餐"></label>
                         </div>
                     </div>
@@ -160,9 +152,10 @@ if 'id="ed-pricing-enabled"' not in text and anchor in text:
 '''
     text = text.replace(anchor, panel + anchor, 1)
 
-# Bind global pricing fields.
+# Bind global pricing fields only once. Previous version checked the listener text rather
+# than the declaration, so a patched index could receive a second `const pricingEnabled`.
 bind_anchor = "            document.getElementById('btn-save-survey').addEventListener('click', saveSurvey);\n"
-if "ed-pricing-enabled').addEventListener" not in text and bind_anchor in text:
+if "const pricingEnabled = document.getElementById('ed-pricing-enabled');" not in text and bind_anchor in text:
     binds = r'''            const pricingEnabled = document.getElementById('ed-pricing-enabled');
             if (pricingEnabled) pricingEnabled.addEventListener('change', e => {
                 s.pricing = s.pricing || {};
@@ -186,10 +179,7 @@ if 'data-price-field="actualUnitPrice"' not in text and item_anchor in text:
     item_pricing = r'''
                                 <div class="rounded-lg p-2 space-y-2" style="background-color:var(--brand-50);border:1px solid var(--brand-100)">
                                     <div class="text-[11px] font-bold" style="color:var(--brand-700)"><i class="fas fa-dollar-sign mr-1"></i>費用設定（選填）</div>
-                                    <div class="grid grid-cols-2 gap-2">
-                                        <label class="text-[11px] text-gray-500">實際單價<input type="number" min="0" class="item-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-ii="${ii}" data-price-field="actualUnitPrice" value="${Number(item.pricing?.actualUnitPrice||0)}"></label>
-                                        <label class="text-[11px] text-gray-500">預收單價<input type="number" min="0" class="item-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-ii="${ii}" data-price-field="prepayUnitPrice" value="${Number(item.pricing?.prepayUnitPrice||0)}"></label>
-                                    </div>
+                                    <div class="grid grid-cols-2 gap-2"><label class="text-[11px] text-gray-500">實際單價<input type="number" min="0" class="item-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-ii="${ii}" data-price-field="actualUnitPrice" value="${Number(item.pricing?.actualUnitPrice||0)}"></label><label class="text-[11px] text-gray-500">預收單價<input type="number" min="0" class="item-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-ii="${ii}" data-price-field="prepayUnitPrice" value="${Number(item.pricing?.prepayUnitPrice||0)}"></label></div>
                                     <label class="block text-[11px] text-gray-500">數量級距單價<input type="text" class="item-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-ii="${ii}" data-price-field="tierRules" value="${escapeHtml(item.pricing?.tierRules||'')}" placeholder="例如 15:750,20:700,50:650"></label>
                                     ${item.ageOptions ? `<label class="block text-[11px] text-gray-500">年齡票價<input type="text" class="item-price-field w-full border border-gray-200 rounded-lg py-1 px-1.5 mt-1" data-idx="${idx}" data-ii="${ii}" data-price-field="agePriceRules" value="${escapeHtml(item.pricing?.agePriceRules||'')}" placeholder="例如 0-6:230,7+:285"></label>` : ''}
                                 </div>'''
