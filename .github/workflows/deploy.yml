@@ -34,9 +34,8 @@ jobs:
       - name: Apply repository fixes
         run: |
           python3 scripts/patch_live_source.py
-          python3 scripts/patch_pricing_summary.py
-          # Generic pricing base is already committed in public/index.html.
-          # Keep deploy deterministic; pricing UI changes are committed directly to source.
+          # Pricing summary/runtime is already committed in public/index.html.
+          # Reapplying patch_pricing_summary.py duplicates getPricingConfig and breaks JS validation.
 
       - name: Validate inline module JavaScript
         shell: bash
