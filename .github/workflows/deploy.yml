@@ -35,6 +35,7 @@ jobs:
         run: |
           python3 scripts/patch_live_source.py
           python3 scripts/patch_generic_pricing.py
+          python3 scripts/patch_admin_v2.py
 
       - name: Validate inline module JavaScript
         shell: bash
