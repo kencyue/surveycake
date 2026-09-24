@@ -1877,10 +1877,15 @@
                 const knob = document.createElement('span');
                 knob.className = 'absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all';
                 track.appendChild(knob);
+                const stateText = document.createElement('span');
+                stateText.className = 'pricing-switch-state text-[11px] font-bold w-7 text-right';
                 input.insertAdjacentElement('afterend', track);
+                track.insertAdjacentElement('afterend', stateText);
                 const paint = () => {
                     track.style.backgroundColor = input.checked ? 'var(--brand-500)' : '#d1d5db';
                     knob.style.left = input.checked ? '1.375rem' : '0.125rem';
+                    stateText.textContent = input.checked ? 'ON' : 'OFF';
+                    stateText.style.color = input.checked ? 'var(--brand-600)' : '#9ca3af';
                 };
                 track.addEventListener('click', e => { e.preventDefault(); input.click(); setTimeout(paint, 0); });
                 input.addEventListener('change', paint);
@@ -2058,6 +2063,8 @@
             if (pl) pl.addEventListener('input', e => { s.pricing = s.pricing || {}; s.pricing.perPersonLabel = e.target.value; });
             document.getElementById('btn-save-survey').addEventListener('click', saveSurvey);
             renderQuestionEditorList();
+            setupEditorSectionTabs();
+            enhancePricingSwitches();
         }
 
         function toLocalInputValue(iso) {
@@ -2080,6 +2087,7 @@
             document.querySelectorAll('.q-just-added').forEach(el => {
                 setTimeout(() => el.classList.remove('q-just-added'), 1400);
             });
+            enhancePricingSwitches();
         }
 
         function renderQuestionEditorCard(q, idx, total) {
