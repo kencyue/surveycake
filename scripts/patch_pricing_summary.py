@@ -1,23 +1,29 @@
 from pathlib import Path
-import re
 
 path = Path("public/index.html")
 text = path.read_text(encoding="utf-8")
 
-start = text.find("        function renderPricingSummary() {")
+# The pricing helper may already be the new calculatePricingSummary version, or the old renderPricingSummary version.
+start = text.find("        function calculatePricingSummary() {")
+if start < 0:
+    start = text.find("        function renderPricingSummary() {")
 end = text.find("        function renderFillPage() {", start)
 if start < 0 or end < 0:
     raise SystemExit("pricing/renderFillPage markers not found")
 
-helper = r'''        function calculatePricingSummary() {
-            const survey = state.activeSurvey || {};
+helper = r'''        function getPricingConfig(survey) {
+            survey = survey || {};
             let p = survey.pricing;
-            // Backward-compatible fallback: older injected copies may not yet contain pricing metadata.
             if ((!p || !p.enabled) && (survey.questions || []).some(q => q.id === 'attendees') && (survey.questions || []).some(q => q.id === 'rooms')) {
                 p = { enabled:true, attendeeQuestionId:'attendees', adultItemId:'adult', childItemId:'child', roomQuestionId:'rooms', twinItemId:'twin', quadItemId:'quad', extraBedItemId:'extra', shirtQuestionId:'shirts' };
             }
-            if (!p || !p.enabled) return null;
-            const answers = state.answers || {};
+            return p && p.enabled ? p : null;
+        }
+
+        function calculatePricingSummaryFor(survey, answers) {
+            const p = getPricingConfig(survey);
+            if (!p) return null;
+            answers = answers || {};
             const count = (qid, itemId) => Number(answers[qid]?.counts?.[itemId] || 0);
             const attendeeQ = p.attendeeQuestionId;
             const adults = count(attendeeQ, p.adultItemId);
@@ -47,6 +53,10 @@ helper = r'''        function calculatePricingSummary() {
             return { adults, children, totalPeople, child7plus, childUnder7, twin, quad, extra, shirts, shirtTier, roomActual, ticketsActual, mealsActual, shirtActual, projectedTotal, prepayTotal };
         }
 
+        function calculatePricingSummary() {
+            return calculatePricingSummaryFor(state.activeSurvey || {}, state.answers || {});
+        }
+
         function pricingSummaryHtml(x, compact = false) {
             if (!x) return '';
             const money = n => Number(n || 0).toLocaleString('zh-TW');
@@ -66,11 +76,11 @@ helper = r'''        function calculatePricingSummary() {
         }
 
         function renderPricingSummary() { return pricingSummaryHtml(calculatePricingSummary(), false); }
-
         function renderAdminPricingSummary(summary) { return summary ? pricingSummaryHtml(summary, true) : ''; }
 
         function buildAdminPricingAggregate(rows) {
-            const summaries = rows.map(r => r.pricingSummary).filter(Boolean);
+            const survey = state.viewingSurveyMeta || {};
+            const summaries = rows.map(r => r.pricingSummary || calculatePricingSummaryFor(survey, r.answers || {})).filter(Boolean);
             if (!summaries.length) return '';
             const sum = key => summaries.reduce((a,s) => a + Number(s[key] || 0), 0);
             const money = n => Number(n || 0).toLocaleString('zh-TW');
@@ -88,16 +98,63 @@ helper = r'''        function calculatePricingSummary() {
 '''
 text = text[:start] + helper + text[end:]
 
-# Ensure the preview is present on the last page.
-needle = '                    <div id="question-list"></div>\n'
-if '${isLast ? renderPricingSummary() : \'\'}' not in text:
-    text = text.replace(needle, needle + "                    ${isLast ? renderPricingSummary() : ''}\n", 1)
+# Dedicated confirmation page: the last answer page now goes to a visible pricing review page before submit.
+fill_start = text.find("        function renderFillPage() {")
+fill_end = text.find("        function validatePage(", fill_start)
+if fill_start < 0 or fill_end < 0:
+    raise SystemExit("renderFillPage block not found")
+new_fill = r'''        function renderFillPage() {
+            const isPricingReview = state.currentPageIndex === state.pages.length;
+            const hasPricing = !!getPricingConfig(state.activeSurvey || {});
+            if (isPricingReview && hasPricing) {
+                DOM.root.innerHTML = `
+                    <div class="w-full animate-slide-up">
+                        ${renderPricingSummary()}
+                        <button id="btn-page-next" class="w-full text-white font-bold py-4 px-8 rounded-2xl shadow-md transition-transform transform active:scale-95 text-lg flex items-center justify-center relative overflow-hidden" style="background-color:var(--brand-500)">
+                            <span id="submit-text">確認送出</span>
+                            <div id="submit-loader" class="hidden absolute inset-0 flex items-center justify-center" style="background-color:var(--brand-600)"><i class="fas fa-spinner fa-spin text-2xl"></i></div>
+                        </button>
+                    </div>`;
+                document.getElementById('btn-page-next').addEventListener('click', async () => {
+                    if (!isSurveyOpenNow(state.activeSurvey)) return showMessage('問卷已截止', '問卷調查已截止，無法送出，感謝您的參與！', 'error');
+                    document.getElementById('submit-text').classList.add('invisible');
+                    document.getElementById('submit-loader').classList.remove('hidden');
+                    const ok = await submitResponse();
+                    if (ok) { state.mode = 'thanks'; render(); window.scrollTo(0, 0); }
+                    else { document.getElementById('submit-text').classList.remove('invisible'); document.getElementById('submit-loader').classList.add('hidden'); }
+                });
+                return;
+            }
 
-# Re-render the pricing preview live whenever a counter changes on the final page.
-if 'id="pricing-summary-live"' not in text:
-    text = text.replace("                    ${isLast ? renderPricingSummary() : ''}\n", "                    ${isLast ? `<div id=\"pricing-summary-live\">${renderPricingSummary()}</div>` : ''}\n", 1)
+            const pageQuestions = state.pages[state.currentPageIndex] || [];
+            const isLastQuestionPage = state.currentPageIndex === state.pages.length - 1;
+            const submitHere = isLastQuestionPage && !hasPricing;
+            DOM.root.innerHTML = `
+                <div class="w-full animate-slide-up">
+                    <div id="question-list"></div>
+                    <button id="btn-page-next" class="w-full text-white font-bold py-4 px-8 rounded-2xl shadow-md transition-transform transform active:scale-95 text-lg flex items-center justify-center relative overflow-hidden" style="background-color:var(--brand-500)">
+                        <span id="submit-text">${submitHere ? '確認送出' : (isLastQuestionPage ? '查看最後統計與金額' : '下一步')}</span>
+                        <div id="submit-loader" class="hidden absolute inset-0 flex items-center justify-center" style="background-color:var(--brand-600)"><i class="fas fa-spinner fa-spin text-2xl"></i></div>
+                        ${submitHere ? '' : '<i class="fas fa-arrow-right ml-2"></i>'}
+                    </button>
+                </div>`;
+            renderCurrentQuestions(pageQuestions);
+            document.getElementById('btn-page-next').addEventListener('click', async () => {
+                if (!isSurveyOpenNow(state.activeSurvey)) return showMessage('問卷已截止', '問卷調查已截止，無法再繼續填寫，感謝您的參與！', 'error');
+                if (!validatePage(pageQuestions)) return;
+                if (!submitHere) { state.currentPageIndex++; render(); window.scrollTo(0, 0); return; }
+                document.getElementById('submit-text').classList.add('invisible');
+                document.getElementById('submit-loader').classList.remove('hidden');
+                const ok = await submitResponse();
+                if (ok) { state.mode = 'thanks'; render(); window.scrollTo(0, 0); }
+                else { document.getElementById('submit-text').classList.remove('invisible'); document.getElementById('submit-loader').classList.add('hidden'); }
+            });
+        }
 
-# Persist the exact calculation shown to the respondent so admin/export can see the same numbers.
+'''
+text = text[:fill_start] + new_fill + text[fill_end:]
+
+# Save the calculation snapshot for new responses.
 old = '''                await addDoc(responsesCol(state.activeSurveyId), {
                     answers: state.answers,
                     timestamp: new Date().toISOString(),
@@ -112,28 +169,28 @@ new = '''                await addDoc(responsesCol(state.activeSurveyId), {
 if old in text:
     text = text.replace(old, new, 1)
 
-# Show aggregate pricing in admin statistics.
+# Admin aggregate: calculate old responses on the fly too, so money statistics are visible immediately.
 old = "            statsContainer.innerHTML = '';\n"
-new = "            statsContainer.innerHTML = buildAdminPricingAggregate(rows);\n"
 if old in text:
-    text = text.replace(old, new, 1)
+    text = text.replace(old, "            statsContainer.innerHTML = buildAdminPricingAggregate(rows);\n", 1)
 
-# Show the saved pricing snapshot inside each expanded response card.
+# Expanded admin response: use stored snapshot, otherwise calculate legacy rows from their answers.
 needle = "                            ${(s.questions || []).map(q => renderAnswerDetail(q, row.answers ? row.answers[q.id] : undefined)).join('')}\n"
-if needle in text and 'renderAdminPricingSummary(row.pricingSummary)' not in text:
-    text = text.replace(needle, needle + "                            ${renderAdminPricingSummary(row.pricingSummary)}\n", 1)
+if needle in text and 'calculatePricingSummaryFor(s, row.answers || {})' not in text:
+    text = text.replace(needle, needle + "                            ${renderAdminPricingSummary(row.pricingSummary || calculatePricingSummaryFor(s, row.answers || {}))}\n", 1)
 
-# Add pricing columns to CSV/Excel/JSON exports.
-needle = "                (s.questions || []).forEach(q => {\n"
-# Target only getExportRows by operating after its marker.
+# Export money columns for both new and legacy responses.
 pos = text.find('        function getExportRows() {')
 if pos >= 0:
     endpos = text.find('        function downloadFile(', pos)
     block = text[pos:endpos]
-    if "'預收費用合計'" not in block:
-        insert = "                if (row.pricingSummary) { out['預估活動總額'] = row.pricingSummary.projectedTotal || 0; out['預收費用合計'] = row.pricingSummary.prepayTotal || 0; }\n"
-        block = block.replace("                return out;\n", insert + "                return out;\n", 1)
-        text = text[:pos] + block + text[endpos:]
+    old_line = "                if (row.pricingSummary) { out['預估活動總額'] = row.pricingSummary.projectedTotal || 0; out['預收費用合計'] = row.pricingSummary.prepayTotal || 0; }\n"
+    new_line = "                const pricing = row.pricingSummary || calculatePricingSummaryFor(s, row.answers || {}); if (pricing) { out['預估活動總額'] = pricing.projectedTotal || 0; out['預收費用合計'] = pricing.prepayTotal || 0; }\n"
+    if old_line in block:
+        block = block.replace(old_line, new_line, 1)
+    elif "'預收費用合計'" not in block:
+        block = block.replace("                return out;\n", new_line + "                return out;\n", 1)
+    text = text[:pos] + block + text[endpos:]
 
 path.write_text(text, encoding="utf-8")
-print("patched pricing preview + admin visibility")
+print("patched dedicated pricing review + legacy admin calculation")
